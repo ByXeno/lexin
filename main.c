@@ -36,6 +36,7 @@ int main(void)
     bool res = !lexin_consume_context(&lex);
     free(lex.ctx);      
     printf("token count: %d\n",lex.tokens.count);
+    #if 0
     uint32_t i = 0;
     for(;i < lex.tokens.count;++i){
         if(lex.tokens.data[i].type == token_op)
@@ -48,5 +49,7 @@ int main(void)
             lex.tokens.data[i].val);
         }
     }
+    #endif
+    free(lex.tokens.data);
     return res;
 }

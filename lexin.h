@@ -187,15 +187,23 @@ bool lexin_convert_to_token
     if(isdigit(*l->last_cursor)) {
         char* end = 0;
         tok.val = strtoul(arr,&end,10);
-        if(*end != '\0') {
-            printf("Unknown suffix %s\n",end);
-            l->last_cursor = l->cursor+1;
-            return false;
-        }
         if (tok.val == (uint32_t)ULONG_MAX && errno == ERANGE) {
             printf("Integer overflow \"%.*s\"\n",l->cursor - l->last_cursor,l->last_cursor);
             l->last_cursor = l->cursor+1;
             return false;
+        }
+        if(*end != '\0') {
+            if(*end == 'x') {
+                tok.val = strtoul(end,0,16);
+            } else if(*end == 'b') {
+                tok.val = strtoul(end,0,2);
+            } else if(*end == 'o') {
+                tok.val = strtoul(end,0,8);
+            } else {
+                printf("Unknown suffix %s\n",end);
+                l->last_cursor = l->cursor+1;
+                return false;
+            }
         }
         if(l->tokens.count > 1) {
             if(
