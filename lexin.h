@@ -100,8 +100,8 @@ char* get_token_type_str(token_t t);
 bool lexin_is_keyword(lexin_t* l,char* str);
 uint32_t lexin_get_index_keyword(lexin_t* l,char* str);
 
-#define FNV_PRIME 16777619u
-#define FNV_OFFSET 2166136261u
+#define FNV_PRIME (unsigned)16777619
+#define FNV_OFFSET (unsigned)2166136261
 
 #endif // LEXIN_H_
 
@@ -226,6 +226,7 @@ bool lexin_convert_to_token
             goto end;
         }
     }
+    if(l->cursor == l->last_cursor) return true;
     printf("Unknown \"%.*s\"\n",l->cursor - l->last_cursor,l->last_cursor);
     l->last_cursor = l->cursor+1;
     return false;
@@ -248,7 +249,7 @@ bool lexin_consume_context
     l->res = true;
     while(l->ctx_end > l->cursor)
     {
-        if(isblank(*l->cursor)) {
+        if(isblank(*l->cursor) || *l->cursor == '\n') {
             if(
             !(((l->cursor - 1 == l->last_cursor)
             || (l->cursor == l->last_cursor))
@@ -259,7 +260,9 @@ bool lexin_consume_context
                 }
                 l->last_cursor--;
             }
-            l->last_cursor++;
+            if(*l->cursor == '\n')
+            {l->last_cursor = l->cursor+1;}
+            else{l->last_cursor++;}
             l->cursor++;
             continue;
         }
