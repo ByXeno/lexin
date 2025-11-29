@@ -215,7 +215,7 @@ bool lexin_convert_to_token
         tok.type = token_op;
         goto end;
     }
-    if(isalpha(*l->last_cursor)) {
+    if(isalpha(*l->last_cursor) || *l->last_cursor == '_') {
         if(lexin_is_keyword(l,arr)) {
             tok.type = token_key;
             tok.val = lexin_get_index_keyword(l,arr);
