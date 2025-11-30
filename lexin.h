@@ -348,10 +348,11 @@ bool lexin_consume_context
             if(is_sl_com) {
                 char* end = strchr(l->cursor,'\n');
                 if(!end) {break;}
-                l->cursor = end+1;
+                l->tokens.count--;
+                l->cursor = end;
                 l->line++;
                 l->col = 1;
-                l->last_cursor = end+1;
+                l->last_cursor = end;
             }
             if(*l->cursor == '\n')
             {
