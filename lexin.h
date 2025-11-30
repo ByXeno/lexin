@@ -1,15 +1,15 @@
 #ifndef LEXIN_H_
 #define LEXIN_H_
 
-#include <stdint.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <stdbool.h>
-#include <string.h>
-#include <ctype.h>
-#include <assert.h>
-#include <limits.h>
-#include <errno.h>
+#include "stdint.h"
+#include "stdlib.h"
+#include "stdio.h"
+#include "stdbool.h"
+#include "string.h"
+#include "ctype.h"
+#include "assert.h"
+#include "limits.h"
+#include "errno.h"
 
 #ifndef LEXIN_INIT_CAP
 #define LEXIN_INIT_CAP 16
@@ -300,7 +300,8 @@ bool lexin_consume_context
     buf[sl_len] = 0;
     while(l->ctx_end > l->cursor)
     {
-        // Add more checking
+        // TODO: Add more checking
+        // TODO: Support for '
         if(l->str_mode && *l->cursor == '"' &&
         *(l->cursor-1) != '\\' &&
         *(l->cursor-1) != '\'') {
@@ -316,9 +317,10 @@ bool lexin_consume_context
         if(!l->str_mode && *l->cursor == '"' &&
         *(l->cursor-1) != '\\' &&
         *(l->cursor-1) != '\'') {
-            if(!lexin_convert_to_token(l)){l->res = false;}
             l->last_cursor = l->cursor + 1;
+            l->cursor++;
             l->str_mode = true;
+            continue;
         }
         if(l->str_mode)
         {
