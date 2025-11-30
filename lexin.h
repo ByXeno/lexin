@@ -61,6 +61,10 @@ typedef enum {
     token_op,
 } token_type_t;
 
+// TODO convert val to an union which holds
+// lit op id key
+// This is fine for right now but we can
+// need in the near future
 typedef struct {
     token_type_t type;
     int64_t val;
@@ -81,16 +85,23 @@ typedef struct {
 typedef struct {
     char* ctx;
     char* ctx_end;
+    bool res;
     uint32_t line;
+    uint32_t col;
     char* cursor;
     char* last_cursor;
+    FILE* err_out;
+    char* file_name;
     char* ops;
     uint32_t opc;
     char** keys;
     uint32_t keyc;
     tokens_t tokens;
     str_list_t strs;
-    bool res;
+    char* sl_com;
+    char* ml_com_start;
+    char* ml_com_end;
+    bool str_mode;
 } lexin_t;
 
 bool lexin_consume_context(lexin_t* l);
@@ -99,9 +110,10 @@ bool lexin_is_op(lexin_t* l,char c);
 char* get_token_type_str(token_t t);
 bool lexin_is_keyword(lexin_t* l,char* str);
 uint32_t lexin_get_index_keyword(lexin_t* l,char* str);
+void print_token(lexin_t* l,token_t t,uint32_t i);
 
-#define FNV_PRIME (unsigned)16777619
-#define FNV_OFFSET (unsigned)2166136261
+#define FNV_OFFSET 0xcbf29ce484222325ULL
+#define FNV_PRIME 0x100000001b3ULL
 
 #endif // LEXIN_H_
 
@@ -109,13 +121,14 @@ uint32_t lexin_get_index_keyword(lexin_t* l,char* str);
 #ifndef LEXIN_FIRST_IMPLEMENTATION
 #define LEXIN_FIRST_IMPLEMENTATION
 
-uint32_t lexin_string_hash
+uint64_t lexin_string_hash
 (char *str, uint32_t len)
 {
-    uint32_t hash = FNV_OFFSET;
+    uint64_t hash = FNV_OFFSET;
+    const uint64_t prime = FNV_PRIME;
     for (uint32_t i = 0; i < len; ++i) {
         hash ^= (uint8_t)str[i];
-        hash *= FNV_PRIME;
+        hash *= prime;
     }
     return hash;
 }
@@ -155,6 +168,26 @@ char* get_token_type_str
     }
 }
 
+void print_token
+(lexin_t* l,token_t t,uint32_t i)
+{
+    if(t.type == token_op)
+    {
+        printf("token[%d]:%s %c\n",i,get_token_type_str(t),
+        l->ops[t.val]);
+    }else if(t.type == token_str)
+    {
+        printf("token[%d]:%s %s\n",i,get_token_type_str(t),
+        l->strs.data[t.val]);
+    }else if(t.type == token_key)
+    {
+        printf("token[%d]:%s %s\n",i,get_token_type_str(t),
+        l->keys[t.val]);
+    }else
+    {printf("token[%d]:%s %d\n",i,get_token_type_str(t),t.val);}
+
+}
+
 bool lexin_is_op
 (lexin_t* l,char c)
 {
@@ -177,6 +210,9 @@ uint32_t lexin_get_index_op
     unreachable("Got invalid char at lexin_get_index_op");
 }
 
+#define lexer_printf(l,fmt,...) \
+do { fprintf((l)->err_out,"%s:%d:%d:"fmt,(l)->file_name,(l)->line,(l)->col,__VA_ARGS__);} while(0)
+
 bool lexin_convert_to_token
 (lexin_t* l)
 {
@@ -188,7 +224,7 @@ bool lexin_convert_to_token
         char* end = 0;
         tok.val = strtoul(arr,&end,10);
         if (tok.val == (uint32_t)ULONG_MAX && errno == ERANGE) {
-            printf("Integer overflow \"%.*s\"\n",l->cursor - l->last_cursor,l->last_cursor);
+            lexer_printf(l,"Integer overflow \"%.*s\"\n",l->cursor - l->last_cursor,l->last_cursor);
             l->last_cursor = l->cursor+1;
             return false;
         }
@@ -200,7 +236,7 @@ bool lexin_convert_to_token
             } else if(*end == 'o') {
                 tok.val = strtoul(end,0,8);
             } else {
-                printf("Unknown suffix %s\n",end);
+                lexer_printf(l,"Unknown suffix %s\n",end);
                 l->last_cursor = l->cursor+1;
                 return false;
             }
@@ -235,7 +271,7 @@ bool lexin_convert_to_token
         }
     }
     if(l->cursor == l->last_cursor) return true;
-    printf("Unknown \"%.*s\"\n",l->cursor - l->last_cursor,l->last_cursor);
+    lexer_printf(l,"Unknown \"%.*s\"\n",l->cursor - l->last_cursor,l->last_cursor);
     l->last_cursor = l->cursor+1;
     return false;
 end:
@@ -255,21 +291,72 @@ bool lexin_consume_context
     if(!l->ctx_end)
     {l->ctx_end = strrchr(l->ctx,'\0');}
     l->res = true;
+    if(!l->err_out)
+    {l->err_out = stderr;}
+    l->col = 1;l->line = 1;
+    l->str_mode = false;
+    uint32_t sl_len = strlen(l->sl_com);
+    char buf[sl_len + 1];
+    buf[sl_len] = 0;
     while(l->ctx_end > l->cursor)
     {
-        if(isblank(*l->cursor) || *l->cursor == '\n') {
+        // Add more checking
+        if(l->str_mode && *l->cursor == '"' &&
+        *(l->cursor-1) != '\\' &&
+        *(l->cursor-1) != '\'') {
+            token_t tok = {.val = l->strs.count,.type = token_str};
+            char* str = strndup(l->last_cursor,l->cursor - l->last_cursor);
+            lexin_da_append(&l->strs,str);
+            lexin_da_append(&l->tokens,tok);
+            l->last_cursor = l->cursor + 1;
+            l->cursor++;
+            l->str_mode = false;
+            continue;
+        }
+        if(!l->str_mode && *l->cursor == '"' &&
+        *(l->cursor-1) != '\\' &&
+        *(l->cursor-1) != '\'') {
+            if(!lexin_convert_to_token(l)){l->res = false;}
+            l->last_cursor = l->cursor + 1;
+            l->str_mode = true;
+        }
+        if(l->str_mode)
+        {
+            l->col++;
+            l->cursor++;
+            continue;
+        }
+        if(l->ctx_end - l->cursor > sl_len)
+        {memcpy(buf,l->cursor,sl_len);}
+        else {memset(buf,0,sl_len);}
+        bool is_sl_com = (strcmp(buf,l->sl_com) == 0);
+        // This includes '//' in the strings so we need first check
+        // the comment is in the string or not and for that we should
+        // add string system
+        if(
+        isblank(*l->cursor) || *l->cursor == '\n' || is_sl_com) {
             if(
             !(((l->cursor - 1 == l->last_cursor)
             || (l->cursor == l->last_cursor))
             && isblank(*l->last_cursor)))
             {
-                if(!lexin_convert_to_token(l)) {
-                    l->res = false;
-                }
+                if(!lexin_convert_to_token(l)){l->res = false;}
                 l->last_cursor--;
             }
+            if(is_sl_com) {
+                char* end = strchr(l->cursor,'\n');
+                if(!end) {break;}
+                l->cursor = end+1;
+                l->line++;
+                l->col = 1;
+                l->last_cursor = end+1;
+            }
             if(*l->cursor == '\n')
-            {l->last_cursor = l->cursor+1;}
+            {
+                l->line++;
+                l->col = 1;
+                l->last_cursor = l->cursor+1;
+            }
             else{l->last_cursor++;}
             l->cursor++;
             continue;
@@ -287,6 +374,7 @@ bool lexin_consume_context
             l->cursor++;
             continue;
         }
+        l->col++;
         l->cursor++;
     }
     if(l->last_cursor != l->cursor)
