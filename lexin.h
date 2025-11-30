@@ -146,6 +146,7 @@ bool lexin_is_keyword
 (lexin_t* l,char* str)
 {
     uint32_t i = 0;
+    // TODO: Hash the keywords before starting
     for(;i < l->keyc;++i){
         if(strcmp(str,l->keys[i]) == 0) return true;
     }
@@ -244,16 +245,20 @@ uint32_t lexin_get_col
 do { fprintf((l)->err_out,"%s:%d:%d:"fmt,(l)->file_name,(l)->line,lexin_get_col((l)),__VA_ARGS__);} while(0)
 #endif
 
+// TODO: set a variable for deferencing so no more memory accessing
+
 bool lexin_convert_to_token
 (lexin_t* l)
 {
     if(l->cursor == l->last_cursor) return true;
     token_t tok = {0};
+    // TODO: We can use sized strings here
     char arr[l->cursor - l->last_cursor + 1];
     memcpy(arr,l->last_cursor,l->cursor - l->last_cursor);
     arr[l->cursor - l->last_cursor] = 0;
     if(isdigit(*l->last_cursor)) {
         char* end = 0;
+        // TODO: Add new approach for this because this thing doesnt cover all the cases
         tok.val = strtoul(arr,&end,10);
         if (tok.val == (uint32_t)ULONG_MAX && errno == ERANGE) {
             lexer_printf(l,"Integer overflow \"%.*s\"\n",l->cursor - l->last_cursor,l->last_cursor);
@@ -291,6 +296,7 @@ bool lexin_convert_to_token
         tok.type = token_op;
         goto end;
     }
+    // TODO: Check right here for better performance
     if(isalpha(*l->last_cursor) || *l->last_cursor == '_') {
         if(lexin_is_keyword(l,arr)) {
             tok.type = token_key;
@@ -389,8 +395,6 @@ int32_t lexin_check_command
     }
     if(*com_mode) {l->cursor++;return true;}
     if(is_sl_com) {
-        // This shit acts weird when a line snaps with it
-        //
         lexin_consume_last_one_if_possible(l);
         char* end = strchr(l->cursor,'\n');
         if(!end) {return -1;}
