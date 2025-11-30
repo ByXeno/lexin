@@ -65,6 +65,7 @@ typedef enum {
 // lit op id key
 // This is fine for right now but we can
 // need in the near future
+
 typedef struct {
     token_type_t type;
     int64_t val;
@@ -83,25 +84,33 @@ typedef struct {
 } str_list_t;
 
 typedef struct {
+    int64_t* data;
+    uint32_t count;
+    uint32_t capacity;
+} ids_t;
+
+typedef struct {
     char* ctx;
     char* ctx_end;
     bool res;
+
     uint32_t line;
-    uint32_t col;
     char* cursor;
     char* last_cursor;
+
     FILE* err_out;
     char* file_name;
+
     char* ops;
     uint32_t opc;
     char** keys;
     uint32_t keyc;
     tokens_t tokens;
     str_list_t strs;
+
     char* sl_com;
     char* ml_com_start;
     char* ml_com_end;
-    bool str_mode;
 } lexin_t;
 
 bool lexin_consume_context(lexin_t* l);
@@ -183,8 +192,14 @@ void print_token
     {
         printf("token[%d]:%s %s\n",i,get_token_type_str(t),
         l->keys[t.val]);
+    }else if(t.type == token_id)
+    {
+        printf("token[%d]:%s %08x\n",i,get_token_type_str(t),t.val);
+    }else if(t.type == token_lit)
+    {
+        printf("token[%d]:%s %d\n",i,get_token_type_str(t),t.val);
     }else
-    {printf("token[%d]:%s %d\n",i,get_token_type_str(t),t.val);}
+    {printf("token[%d]:Unknown: %s %d\n",i,get_token_type_str(t),t.val);}
 
 }
 
@@ -210,12 +225,29 @@ uint32_t lexin_get_index_op
     unreachable("Got invalid char at lexin_get_index_op");
 }
 
+uint32_t lexin_get_col
+(lexin_t* l)
+{
+    char* ptr = l->cursor;
+    while(ptr-- > l->ctx){
+        if(*ptr == '\n') {
+            return l->cursor - ptr;
+        }
+    }
+    return  l->cursor -l->ctx;
+}
+
+#if 0
+#define lexer_printf(l,fmt,...)
+#else
 #define lexer_printf(l,fmt,...) \
-do { fprintf((l)->err_out,"%s:%d:%d:"fmt,(l)->file_name,(l)->line,(l)->col,__VA_ARGS__);} while(0)
+do { fprintf((l)->err_out,"%s:%d:%d:"fmt,(l)->file_name,(l)->line,lexin_get_col((l)),__VA_ARGS__);} while(0)
+#endif
 
 bool lexin_convert_to_token
 (lexin_t* l)
 {
+    if(l->cursor == l->last_cursor) return true;
     token_t tok = {0};
     char arr[l->cursor - l->last_cursor + 1];
     memcpy(arr,l->last_cursor,l->cursor - l->last_cursor);
@@ -229,11 +261,11 @@ bool lexin_convert_to_token
             return false;
         }
         if(*end != '\0') {
-            if(*end == 'x') {
+            if(*end == 'x' || *end == 'X') {
                 tok.val = strtoul(end,0,16);
-            } else if(*end == 'b') {
+            } else if(*end == 'b' || *end == 'B') {
                 tok.val = strtoul(end,0,2);
-            } else if(*end == 'o') {
+            } else if(*end == 'o' || *end == 'O') {
                 tok.val = strtoul(end,0,8);
             } else {
                 lexer_printf(l,"Unknown suffix %s\n",end);
@@ -270,7 +302,6 @@ bool lexin_convert_to_token
             goto end;
         }
     }
-    if(l->cursor == l->last_cursor) return true;
     lexer_printf(l,"Unknown \"%.*s\"\n",l->cursor - l->last_cursor,l->last_cursor);
     l->last_cursor = l->cursor+1;
     return false;
@@ -280,87 +311,129 @@ end:
     return true;
 }
 
+void lexin_consume_last_one_if_possible
+(lexin_t* l)
+{
+    if(
+    !((l->cursor - 1 == l->last_cursor)
+    || (l->cursor == l->last_cursor))
+    && !isblank(*l->last_cursor))
+    {
+        if(*(l->cursor-1) != '\n')
+        {if(!lexin_convert_to_token(l)){l->res = false;}}
+        l->last_cursor--;
+    }
+}
+
+bool check_slashes
+(lexin_t* l,char* ptr)
+{
+    uint32_t count = 0;
+    while(ptr-- > l->ctx){
+        if(*ptr == '\\') {
+            count++;
+        }else {break;}
+    }
+    return (count % 2) == 0;
+}
+
+bool lexin_check_string
+(lexin_t* l,bool* str_mode,bool com_mode)
+{
+    if(com_mode) {return false;}
+    if((*str_mode) && *l->cursor == '"' && check_slashes(l,l->cursor) &&
+    ((*(l->cursor-1) != '\'' && *(l->cursor-2) != '\'') ^
+    ((*(l->cursor-1) != '\'' ^ *(l->cursor-2) != '\'')))) {
+        token_t tok = {.val = l->strs.count,.type = token_str};
+        char* str = strndup(l->last_cursor,l->cursor - l->last_cursor);
+        lexin_da_append(&l->strs,str);
+        lexin_da_append(&l->tokens,tok);
+        l->last_cursor = l->cursor + 1;
+        l->cursor++;
+        (*str_mode) = false;
+        return true;
+    }
+    if(!(*str_mode) && *l->cursor == '"' && check_slashes(l,l->cursor) &&
+    (*(l->cursor-1) != '\'' && *(l->cursor-2) != '\'')) {
+        l->last_cursor = l->cursor + 1;
+        l->cursor++;
+        (*str_mode) = true;
+        return true;
+    }
+    if((*str_mode))
+    {
+        l->cursor++;
+        return true;
+    }
+    return false;
+}
+
+int32_t lexin_check_command
+(lexin_t* l,uint32_t sl_len,uint32_t ml_start_len,uint32_t ml_end_len,bool* com_mode)
+{
+    bool is_sl_com = (strncmp(l->cursor,l->sl_com,sl_len) == 0);
+    bool is_ml_com_start = (strncmp(l->cursor,l->ml_com_start,ml_start_len) == 0);
+    bool is_ml_com_end = (strncmp(l->cursor,l->ml_com_end,ml_end_len) == 0);
+    if(is_ml_com_start) {
+        lexin_consume_last_one_if_possible(l);
+        *com_mode = true;
+        l->cursor++;
+        return 1;
+    }
+    if(is_ml_com_end) {
+        *com_mode = false;
+        l->cursor++;
+        l->last_cursor = l->cursor;
+        l->cursor++;
+        return 1;
+    }
+    if(*com_mode) {l->cursor++;return true;}
+    if(is_sl_com) {
+        // This shit acts weird when a line snaps with it
+        //
+        lexin_consume_last_one_if_possible(l);
+        char* end = strchr(l->cursor,'\n');
+        if(!end) {return -1;}
+        l->line++;
+        l->cursor = end+1;
+        l->last_cursor = end+1;
+        return 1;
+    }
+    return 0;
+}
+
 bool lexin_consume_context
 (lexin_t* l)
 {
     if(!l->ctx) {return false;}
-    if(!l->cursor)
-    {l->cursor = l->ctx;}
-    if(!l->last_cursor)
-    {l->last_cursor = l->ctx;}
-    if(!l->ctx_end)
-    {l->ctx_end = strrchr(l->ctx,'\0');}
-    l->res = true;
-    if(!l->err_out)
-    {l->err_out = stderr;}
-    l->col = 1;l->line = 1;
-    l->str_mode = false;
+    if(!l->cursor) {l->cursor = l->ctx;}
+    if(!l->last_cursor) {l->last_cursor = l->ctx;}
+    if(!l->ctx_end) {l->ctx_end = strrchr(l->ctx,'\0');}
+    l->res = true;l->line = 1;
+    if(!l->err_out) {l->err_out = stderr;}
     uint32_t sl_len = strlen(l->sl_com);
-    char buf[sl_len + 1];
-    buf[sl_len] = 0;
+    uint32_t ml_start_len = strlen(l->ml_com_start);
+    uint32_t ml_end_len = strlen(l->ml_com_end);
+    bool com_mode = false;
+    bool str_mode = false;
     while(l->ctx_end > l->cursor)
     {
         // TODO: Add more checking
         // TODO: Support for '
-        if(l->str_mode && *l->cursor == '"' &&
-        *(l->cursor-1) != '\\' &&
-        *(l->cursor-1) != '\'') {
-            token_t tok = {.val = l->strs.count,.type = token_str};
-            char* str = strndup(l->last_cursor,l->cursor - l->last_cursor);
-            lexin_da_append(&l->strs,str);
-            lexin_da_append(&l->tokens,tok);
-            l->last_cursor = l->cursor + 1;
-            l->cursor++;
-            l->str_mode = false;
+        if(*l->cursor == '\n') {l->line++;}
+        if(lexin_check_string(l,&str_mode,com_mode)) {continue;}
+        int32_t lcc = lexin_check_command(l,sl_len,ml_start_len,ml_end_len,&com_mode);
+        if(lcc == 1) {continue;}
+        if(lcc == -1) {break;}
+        if(*l->cursor == '\n') {
+            lexin_consume_last_one_if_possible(l);
+            l->cursor+=1;
+            l->last_cursor = l->cursor;
             continue;
         }
-        if(!l->str_mode && *l->cursor == '"' &&
-        *(l->cursor-1) != '\\' &&
-        *(l->cursor-1) != '\'') {
-            l->last_cursor = l->cursor + 1;
-            l->cursor++;
-            l->str_mode = true;
-            continue;
-        }
-        if(l->str_mode)
-        {
-            l->col++;
-            l->cursor++;
-            continue;
-        }
-        if(l->ctx_end - l->cursor > sl_len)
-        {memcpy(buf,l->cursor,sl_len);}
-        else {memset(buf,0,sl_len);}
-        bool is_sl_com = (strcmp(buf,l->sl_com) == 0);
-        // This includes '//' in the strings so we need first check
-        // the comment is in the string or not and for that we should
-        // add string system
-        if(
-        isblank(*l->cursor) || *l->cursor == '\n' || is_sl_com) {
-            if(
-            !(((l->cursor - 1 == l->last_cursor)
-            || (l->cursor == l->last_cursor))
-            && isblank(*l->last_cursor)))
-            {
-                if(!lexin_convert_to_token(l)){l->res = false;}
-                l->last_cursor--;
-            }
-            if(is_sl_com) {
-                char* end = strchr(l->cursor,'\n');
-                if(!end) {break;}
-                l->tokens.count--;
-                l->cursor = end;
-                l->line++;
-                l->col = 1;
-                l->last_cursor = end;
-            }
-            if(*l->cursor == '\n')
-            {
-                l->line++;
-                l->col = 1;
-                l->last_cursor = l->cursor+1;
-            }
-            else{l->last_cursor++;}
+        if(isblank(*l->cursor) || isspace(*l->cursor)) {
+            lexin_consume_last_one_if_possible(l);
+            l->last_cursor++;
             l->cursor++;
             continue;
         }
@@ -373,11 +446,10 @@ bool lexin_consume_context
             token_t tok = {.type = token_op,
             .val = lexin_get_index_op(l,*l->cursor)};
             lexin_da_append(&l->tokens,tok);
-            l->last_cursor = l->cursor+1;
             l->cursor++;
+            l->last_cursor = l->cursor;
             continue;
         }
-        l->col++;
         l->cursor++;
     }
     if(l->last_cursor != l->cursor)
@@ -389,4 +461,5 @@ bool lexin_consume_context
 }
 
 #endif // LEXIN_FIRST_IMPLEMENTATION
+
 #endif // LEXIN_IMPLEMENTATION
