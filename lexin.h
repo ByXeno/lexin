@@ -67,7 +67,7 @@ typedef enum {
     token_op,
 } token_type_t;
 
-// TODO convert val to an union which holds
+// TODO (FEATURE): convert val to an union which holds
 // lit op id key
 // This is fine for right now but we can
 // need in the near future
@@ -111,6 +111,7 @@ typedef struct {
     uint32_t opc;
     char** keys;
     uint32_t keyc;
+    uint64_t* key_hashs;
     tokens_t tokens;
     str_list_t strs;
 
@@ -123,7 +124,7 @@ bool lexin_consume_context(lexin_t* l);
 bool lexin_convert_to_token(lexin_t* l);
 bool lexin_is_op(lexin_t* l,char c);
 char* get_token_type_str(token_t t);
-bool lexin_is_keyword(lexin_t* l,char* str);
+bool lexin_is_keyword(lexin_t* l,char* ptr,uint32_t len);
 uint32_t lexin_get_index_keyword(lexin_t* l,char* str);
 void print_token(lexin_t* l,token_t t,uint32_t i);
 
@@ -149,12 +150,12 @@ uint64_t lexin_string_hash
 }
 
 bool lexin_is_keyword
-(lexin_t* l,char* str)
+(lexin_t* l,char* ptr,uint32_t len)
 {
+    uint64_t hash = lexin_string_hash(ptr,len);
     uint32_t i = 0;
-    // TODO: Hash the keywords before starting
     for(;i < l->keyc;++i){
-        if(strcmp(str,l->keys[i]) == 0) return true;
+        if(l->key_hashs[i] == hash) return true;
     }
     return false;
 }
@@ -251,20 +252,20 @@ uint32_t lexin_get_col
 do { fprintf((l)->err_out,"%s:%d:%d:" fmt,(l)->file_name,(l)->line,lexin_get_col((l)),__VA_ARGS__);} while(0)
 #endif
 
-// TODO: set a variable for deferencing so no more memory accessing
+// TODO (LITTLE): set a variable for deferencing so no more memory accessing
 
 bool lexin_convert_to_token
 (lexin_t* l)
 {
     if(l->cursor == l->last_cursor) return true;
     token_t tok = (token_t){.type = token_unknown,.val = 0};
-    // TODO: We can use sized strings here
+    // TODO (MID): We can use sized strings here
     char arr[l->cursor - l->last_cursor + 1];
     memcpy(arr,l->last_cursor,l->cursor - l->last_cursor);
     arr[l->cursor - l->last_cursor] = 0;
     if(isdigit(*l->last_cursor)) {
         char* end = 0;
-        // TODO: Add new approach for this because this thing doesnt cover all the cases
+        // TODO (FEATURE): Add new approach for this because this thing doesnt cover all the cases
         tok.val = strtoul(arr,&end,10);
         if (tok.val == (uint32_t)ULONG_MAX && errno == ERANGE) {
             lexer_printf(l,"Integer overflow \"%.*s\"\n",
@@ -303,9 +304,9 @@ bool lexin_convert_to_token
         tok.type = token_op;
         goto end;
     }
-    // TODO: Check right here for better performance
+    // TODO (LITTLE): Check right here for better performance
     if(isalpha(*l->last_cursor) || *l->last_cursor == '_') {
-        if(lexin_is_keyword(l,arr)) {
+        if(lexin_is_keyword(l,l->last_cursor,l->cursor - l->last_cursor)) {
             tok.type = token_key;
             tok.val = lexin_get_index_keyword(l,arr);
             goto end;
@@ -422,6 +423,10 @@ bool lexin_consume_context
     if(!l->ctx_end) {l->ctx_end = strrchr(l->ctx,'\0');}
     l->res = true;l->line = 1;
     if(!l->err_out) {l->err_out = stderr;}
+    uint64_t hashs[l->keyc];
+    l->key_hashs = hashs;
+    for(uint32_t i = 0;i < l->keyc;++i)
+    {hashs[i] = lexin_string_hash(l->keys[i],strlen(l->keys[i]));}
     uint32_t sl_len = strlen(l->sl_com);
     uint32_t ml_start_len = strlen(l->ml_com_start);
     uint32_t ml_end_len = strlen(l->ml_com_end);
@@ -429,8 +434,8 @@ bool lexin_consume_context
     bool str_mode = false;
     while(l->ctx_end > l->cursor)
     {
-        // TODO: Add more checking
-        // TODO: Support for '
+        // TODO (FEATURE): Add more checking
+        // TODO (FEATURE): Support for '
         if(*l->cursor == '\n') {l->line++;}
         if(lexin_check_string(l,&str_mode,com_mode)) {continue;}
         int32_t lcc = lexin_check_command(l,sl_len,ml_start_len,ml_end_len,&com_mode);
@@ -468,6 +473,7 @@ bool lexin_consume_context
         if(!lexin_convert_to_token(l))
         {l->res = false;}
     }
+    l->key_hashs = 0;
     return l->res;
 }
 
