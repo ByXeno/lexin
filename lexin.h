@@ -253,8 +253,6 @@ uint32_t lexin_get_col
 do { fprintf((l)->err_out,"%s:%d:%d:" fmt,(l)->file_name,(l)->line,lexin_get_col((l)),__VA_ARGS__);} while(0)
 #endif
 
-// TODO (LITTLE): set a variable for deferencing so no more memory accessing
-
 bool lexin_convert_to_token
 (lexin_t* l)
 {
@@ -264,7 +262,8 @@ bool lexin_convert_to_token
     char arr[l->cursor - l->last_cursor + 1];
     memcpy(arr,l->last_cursor,l->cursor - l->last_cursor);
     arr[l->cursor - l->last_cursor] = 0;
-    if(isdigit(*l->last_cursor)) {
+    char lc = *l->last_cursor;
+    if(isdigit(lc)) {
         char* end = 0;
         // TODO (FEATURE): Add new approach for this because this thing doesnt cover all the cases
         tok.val = strtoul(arr,&end,10);
@@ -300,20 +299,20 @@ bool lexin_convert_to_token
         tok.type = token_lit;
         goto end;
     }
-    if(lexin_is_op(l,*l->last_cursor)) {
-        tok.val = lexin_get_index_op(l,*l->last_cursor);
+    if(lexin_is_op(l,lc)) {
+        tok.val = lexin_get_index_op(l,lc);
         tok.type = token_op;
         goto end;
     }
     // TODO (LITTLE): Check right here for better performance
-    if(isalpha(*l->last_cursor) || *l->last_cursor == '_') {
+    if(isalpha(lc) || lc == '_') {
         if(lexin_is_keyword(l,l->last_cursor,l->cursor - l->last_cursor)) {
             tok.type = token_key;
             tok.val = lexin_get_index_keyword(l,l->last_cursor,l->cursor - l->last_cursor);
             goto end;
         } else {
             tok.type = token_id;
-            tok.val = lexin_string_hash(arr,strlen(arr));
+            tok.val = lexin_string_hash(l->last_cursor,l->cursor - l->last_cursor);
             goto end;
         }
     }
@@ -356,9 +355,12 @@ bool lexin_check_string
 (lexin_t* l,bool* str_mode,bool com_mode)
 {
     if(com_mode) {return false;}
-    if((*str_mode) && *l->cursor == '"' && check_slashes(l,l->cursor) &&
-    ((*(l->cursor-1) != '\'' && *(l->cursor-2) != '\'') ^
-    ((*(l->cursor-1) != '\'') ^ (*(l->cursor-2) != '\'')))) {
+    char cc = *l->cursor;
+    char cpc = *(l->cursor-1);
+    char cppc = *(l->cursor-2);
+    if((*str_mode) && cc == '"' && check_slashes(l,l->cursor) &&
+    ((cpc != '\'' && cppc != '\'') ^
+    ((cpc != '\'') ^ (cppc != '\'')))) {
         token_t tok = {.type = token_str,.val = l->strs.count};
         char* str = strndup(l->last_cursor,l->cursor - l->last_cursor);
         lexin_da_append(&l->strs,str);
@@ -368,8 +370,8 @@ bool lexin_check_string
         (*str_mode) = false;
         return true;
     }
-    if(!(*str_mode) && *l->cursor == '"' && check_slashes(l,l->cursor) &&
-    (*(l->cursor-1) != '\'' && *(l->cursor-2) != '\'')) {
+    if(!(*str_mode) && cc == '"' && check_slashes(l,l->cursor) &&
+    (cpc != '\'' && cppc != '\'')) {
         l->last_cursor = l->cursor + 1;
         l->cursor++;
         (*str_mode) = true;
@@ -433,35 +435,37 @@ bool lexin_consume_context
     uint32_t ml_end_len = strlen(l->ml_com_end);
     bool com_mode = false;
     bool str_mode = false;
+    char cc = 0;
     while(l->ctx_end > l->cursor)
     {
         // TODO (FEATURE): Add more checking
         // TODO (FEATURE): Support for '
-        if(*l->cursor == '\n') {l->line++;}
+        cc = *l->cursor;
+        if(cc == '\n') {l->line++;}
         if(lexin_check_string(l,&str_mode,com_mode)) {continue;}
         int32_t lcc = lexin_check_command(l,sl_len,ml_start_len,ml_end_len,&com_mode);
         if(lcc == 1) {continue;}
         if(lcc == -1) {break;}
-        if(*l->cursor == '\n') {
+        if(cc == '\n') {
             lexin_consume_last_one_if_possible(l);
             l->cursor+=1;
             l->last_cursor = l->cursor;
             continue;
         }
-        if(isblank(*l->cursor) || isspace(*l->cursor)) {
+        if(isblank(cc) || isspace(cc)) {
             lexin_consume_last_one_if_possible(l);
             l->last_cursor++;
             l->cursor++;
             continue;
         }
-        if(lexin_is_op(l,*l->cursor)) {
+        if(lexin_is_op(l,cc)) {
             if(l->cursor != l->last_cursor && !isblank(*l->last_cursor))
             {
                 if(!lexin_convert_to_token(l))
                 {l->res = false;}
             }
             token_t tok = {.type = token_op,
-            .val = lexin_get_index_op(l,*l->cursor)};
+            .val = lexin_get_index_op(l,cc)};
             lexin_da_append(&l->tokens,tok);
             l->cursor++;
             l->last_cursor = l->cursor;
