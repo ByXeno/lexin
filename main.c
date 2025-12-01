@@ -31,14 +31,14 @@ int main(void)
     printf("token count: %d\n",lex.tokens.count);
     printf("string count: %d\n",lex.strs.count);
     uint32_t i = 0;
-    #if 1
-    for(;i < lex.tokens.count;++i){
+    #if 0
+    for(i = 0;i < lex.tokens.count;++i){
         //if(lex.tokens.data[i].type == token_str)
         {print_token(&lex,lex.tokens.data[i],i);}
     }
     #endif
     free(lex.tokens.data);
-    for(uint32_t i = 0;i < lex.strs.count;++i)
+    for(i = 0;i < lex.strs.count;++i)
     {free(lex.strs.data[i]);}
     free(lex.strs.data);
     return res;
@@ -54,7 +54,7 @@ char* read_entrie_file
     size = ftell(file);
     if(size == -1) return 0;
     if(fseek(file, current_pos, SEEK_SET) != 0) return 0;
-    char* buffer = calloc(size+1,sizeof(char));
+    char* buffer = (char*)calloc(size+1,sizeof(char));
     if(!buffer) return 0;
     *count = fread(buffer,sizeof(char),size,file);
     if(*count != size) {free(buffer);return 0;}

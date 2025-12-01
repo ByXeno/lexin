@@ -15,6 +15,12 @@
 #define LEXIN_INIT_CAP 16
 #endif // LEXIN_INIT_CAP
 
+#ifdef __cplusplus
+#define lexin_cast(T) (T)
+#else
+#define lexin_cast(T)
+#endif
+
 #define lexin_da_alloc(list, exp_cap)           \
     do {                                        \
         if ((exp_cap) > (list)->capacity) {     \
@@ -24,7 +30,7 @@
             while ((exp_cap) > (list)->capacity) { \
                 (list)->capacity *= 2;             \
             }                                      \
-            (list)->data = (typeof((list)->data))realloc((list)->data,(list)->capacity * sizeof(*(list)->data)); \
+            (list)->data = lexin_cast(typeof((list)->data))realloc((list)->data,(list)->capacity * sizeof(*(list)->data)); \
             assert((list)->data != NULL && "Ram is not enough!"); \
         } \
     } while (0)
@@ -195,12 +201,12 @@ void print_token
         l->keys[t.val]);
     }else if(t.type == token_id)
     {
-        printf("token[%d]:%s %08x\n",i,get_token_type_str(t),t.val);
+        printf("token[%d]:%s %08lx\n",i,get_token_type_str(t),t.val);
     }else if(t.type == token_lit)
     {
-        printf("token[%d]:%s %d\n",i,get_token_type_str(t),t.val);
+        printf("token[%d]:%s %ld\n",i,get_token_type_str(t),t.val);
     }else
-    {printf("token[%d]:Unknown: %s %d\n",i,get_token_type_str(t),t.val);}
+    {printf("token[%d]:Unknown: %s %ld\n",i,get_token_type_str(t),t.val);}
 
 }
 
@@ -242,7 +248,7 @@ uint32_t lexin_get_col
 #define lexer_printf(l,fmt,...)
 #else
 #define lexer_printf(l,fmt,...) \
-do { fprintf((l)->err_out,"%s:%d:%d:"fmt,(l)->file_name,(l)->line,lexin_get_col((l)),__VA_ARGS__);} while(0)
+do { fprintf((l)->err_out,"%s:%d:%d:" fmt,(l)->file_name,(l)->line,lexin_get_col((l)),__VA_ARGS__);} while(0)
 #endif
 
 // TODO: set a variable for deferencing so no more memory accessing
@@ -251,7 +257,7 @@ bool lexin_convert_to_token
 (lexin_t* l)
 {
     if(l->cursor == l->last_cursor) return true;
-    token_t tok = {0};
+    token_t tok = (token_t){.type = token_unknown,.val = 0};
     // TODO: We can use sized strings here
     char arr[l->cursor - l->last_cursor + 1];
     memcpy(arr,l->last_cursor,l->cursor - l->last_cursor);
@@ -261,7 +267,8 @@ bool lexin_convert_to_token
         // TODO: Add new approach for this because this thing doesnt cover all the cases
         tok.val = strtoul(arr,&end,10);
         if (tok.val == (uint32_t)ULONG_MAX && errno == ERANGE) {
-            lexer_printf(l,"Integer overflow \"%.*s\"\n",l->cursor - l->last_cursor,l->last_cursor);
+            lexer_printf(l,"Integer overflow \"%.*s\"\n",
+            (uint32_t)(l->cursor - l->last_cursor),l->last_cursor);
             l->last_cursor = l->cursor+1;
             return false;
         }
@@ -308,7 +315,7 @@ bool lexin_convert_to_token
             goto end;
         }
     }
-    lexer_printf(l,"Unknown \"%.*s\"\n",l->cursor - l->last_cursor,l->last_cursor);
+    lexer_printf(l,"Unknown \"%.*s\"\n",(uint32_t)(l->cursor - l->last_cursor),l->last_cursor);
     l->last_cursor = l->cursor+1;
     return false;
 end:
@@ -349,8 +356,8 @@ bool lexin_check_string
     if(com_mode) {return false;}
     if((*str_mode) && *l->cursor == '"' && check_slashes(l,l->cursor) &&
     ((*(l->cursor-1) != '\'' && *(l->cursor-2) != '\'') ^
-    ((*(l->cursor-1) != '\'' ^ *(l->cursor-2) != '\'')))) {
-        token_t tok = {.val = l->strs.count,.type = token_str};
+    ((*(l->cursor-1) != '\'') ^ (*(l->cursor-2) != '\'')))) {
+        token_t tok = {.type = token_str,.val = l->strs.count};
         char* str = strndup(l->last_cursor,l->cursor - l->last_cursor);
         lexin_da_append(&l->strs,str);
         lexin_da_append(&l->tokens,tok);
