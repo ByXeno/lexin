@@ -125,7 +125,7 @@ bool lexin_convert_to_token(lexin_t* l);
 bool lexin_is_op(lexin_t* l,char c);
 char* get_token_type_str(token_t t);
 bool lexin_is_keyword(lexin_t* l,char* ptr,uint32_t len);
-uint32_t lexin_get_index_keyword(lexin_t* l,char* str);
+uint32_t lexin_get_index_keyword(lexin_t* l,char* str,uint32_t len);
 void print_token(lexin_t* l,token_t t,uint32_t i);
 
 #define FNV_OFFSET 0xcbf29ce484222325ULL
@@ -161,11 +161,12 @@ bool lexin_is_keyword
 }
 
 uint32_t lexin_get_index_keyword
-(lexin_t* l,char* str)
+(lexin_t* l,char* ptr,uint32_t len)
 {
+    uint64_t hash = lexin_string_hash(ptr,len);
     uint32_t i = 0;
     for(;i < l->keyc;++i){
-        if(strcmp(str,l->keys[i]) == 0) return i;
+        if(l->key_hashs[i] == hash) return i;
     }
     unreachable("Got invalid string at lexin_get_index_keyword");
 }
@@ -308,7 +309,7 @@ bool lexin_convert_to_token
     if(isalpha(*l->last_cursor) || *l->last_cursor == '_') {
         if(lexin_is_keyword(l,l->last_cursor,l->cursor - l->last_cursor)) {
             tok.type = token_key;
-            tok.val = lexin_get_index_keyword(l,arr);
+            tok.val = lexin_get_index_keyword(l,l->last_cursor,l->cursor - l->last_cursor);
             goto end;
         } else {
             tok.type = token_id;
