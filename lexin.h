@@ -61,6 +61,7 @@ do { fprintf(stderr,__VA_ARGS__);exit(1);} while(0)
 typedef enum {
     token_unknown = 0,
     token_str,
+    token_unified_str,
     token_lit,
     token_lit_double,
     token_id,
@@ -72,6 +73,7 @@ typedef struct {
     token_type_t type;
     union {
         uint64_t as_id;
+        uint64_t as_unified_str;
         int64_t as_int;
         double as_double;
         uint64_t as_key_index;
@@ -139,6 +141,15 @@ void print_token(lexin_t* l,token_t t,uint32_t i);
 #ifdef LEXIN_IMPLEMENTATION
 #ifndef LEXIN_FIRST_IMPLEMENTATION
 #define LEXIN_FIRST_IMPLEMENTATION
+
+typedef struct {
+    uint32_t sl_len;
+    uint32_t ml_start_len;
+    uint32_t ml_end_len;
+    bool com_mode;
+    bool str_mode;
+    bool unified_str_mode;
+} lexin_ctx_t;
 
 uint64_t lexin_string_hash
 (char *str, uint32_t len)
@@ -249,20 +260,12 @@ uint32_t lexin_get_col
     return  l->cursor -l->ctx;
 }
 
-#if 0
-#define lexer_printf(l,fmt,...)
+#ifdef LEXIN_NOLOG
+#define lexin_printf(l,fmt,...)
 #else
-#define lexer_printf(l,fmt,...) \
+#define lexin_printf(l,fmt,...) \
 do { fprintf((l)->err_out,"%s:%d:%d:" fmt,(l)->file_name,(l)->line,lexin_get_col((l)),__VA_ARGS__);} while(0)
 #endif
-
-typedef struct {
-    uint32_t sl_len;
-    uint32_t ml_start_len;
-    uint32_t ml_end_len;
-    bool com_mode;
-    bool str_mode;
-} lexin_ctx_t;
 
 bool lexin_convert_to_token
 (lexin_t* l)
@@ -280,7 +283,7 @@ bool lexin_convert_to_token
         int64_t val = 0;
         val = strtoul(arr,&end,10);
         if (val == (uint32_t)ULONG_MAX && errno == ERANGE) {
-            lexer_printf(l,"Integer overflow \"%.*s\"\n",
+            lexin_printf(l,"Integer overflow \"%.*s\"\n",
             (uint32_t)(l->cursor - l->last_cursor),l->last_cursor);
             l->last_cursor = l->cursor+1;
             return false;
@@ -293,7 +296,7 @@ bool lexin_convert_to_token
             } else if(*end == 'o' || *end == 'O') {
                 val = strtoul(end,0,8);
             } else {
-                lexer_printf(l,"Unknown suffix %s\n",end);
+                lexin_printf(l,"Unknown suffix %s\n",end);
                 l->last_cursor = l->cursor+1;
                 return false;
             }
@@ -329,7 +332,7 @@ bool lexin_convert_to_token
             goto end;
         }
     }
-    lexer_printf(l,"Unknown \"%.*s\"\n",(uint32_t)(l->cursor - l->last_cursor),l->last_cursor);
+    lexin_printf(l,"Unknown \"%.*s\"\n",(uint32_t)(l->cursor - l->last_cursor),l->last_cursor);
     l->last_cursor = l->cursor+1;
     return false;
 end:
@@ -371,9 +374,10 @@ bool lexin_check_string
     char cc = *l->cursor;
     char cpc = *(l->cursor-1);
     char cppc = *(l->cursor-2);
-    if((ctx->str_mode) && cc == '"' && check_slashes(l,l->cursor) &&
+    if(!(ctx->unified_str_mode) && (ctx->str_mode) && cc == '"' && check_slashes(l,l->cursor) &&
     ((cpc != '\'' && cppc != '\'') ^
     ((cpc != '\'') ^ (cppc != '\'')))) {
+        // TODO Handle escape sequences
         token_t tok = {.type = token_str,.val.as_str_index = l->strs.count};
         char* str = strndup(l->last_cursor,l->cursor - l->last_cursor);
         lexin_da_append(&l->strs,str);
@@ -383,8 +387,9 @@ bool lexin_check_string
         ctx->str_mode = false;
         return true;
     }
-    if(!(ctx->str_mode) && cc == '"' && check_slashes(l,l->cursor) &&
+    if(!(ctx->unified_str_mode) && !(ctx->str_mode) && cc == '"' && check_slashes(l,l->cursor) &&
     (cpc != '\'' && cppc != '\'')) {
+        lexin_consume_last_one_if_possible(l);
         l->last_cursor = l->cursor + 1;
         l->cursor++;
         ctx->str_mode = true;
@@ -430,6 +435,48 @@ int32_t lexin_check_command
     return 0;
 }
 
+bool lexin_check_unified_string
+(lexin_t* l,lexin_ctx_t* ctx)
+{
+    if(ctx->com_mode) {return false;}
+    char cc = *l->cursor;
+    // TODO Write Better Checker
+    if(!(ctx->str_mode) && (ctx->unified_str_mode) && cc == '\'' && check_slashes(l,l->cursor)) {
+        // TODO Handle escape sequences
+        bool res = true;
+        if(((int)(l->cursor - l->last_cursor)) > (int)sizeof(uint64_t))
+        {
+            lexin_printf(l,"Unified strings length(%d) exceeds max length(%d)\n String:%.*s",
+            (int)(l->cursor - l->last_cursor),(int)sizeof(uint64_t),
+            (int)(l->cursor - l->last_cursor),l->last_cursor);
+            res = false;goto len_failed;
+        }
+        uint64_t val = *(l->last_cursor);
+        for(uint32_t i = 1;i < (uint32_t)(l->cursor - l->last_cursor);++i)
+        {val = (val << 8) || *(l->last_cursor + i);}
+        token_t tok = {.type = token_unified_str,.val.as_unified_str = val};
+        lexin_da_append(&l->tokens,tok);
+    len_failed:
+        l->last_cursor = l->cursor + 1;
+        l->cursor++;
+        ctx->unified_str_mode = false;
+        return res;
+    }
+    if(!(ctx->str_mode) && !(ctx->unified_str_mode) && cc == '\'' && check_slashes(l,l->cursor)) {
+        lexin_consume_last_one_if_possible(l);
+        l->last_cursor = l->cursor + 1;
+        l->cursor++;
+        ctx->unified_str_mode = true;
+        return true;
+    }
+    if(ctx->unified_str_mode)
+    {
+        l->cursor++;
+        return true;
+    }
+    return false;
+}
+
 bool lexin_consume_context
 (lexin_t* l)
 {
@@ -454,9 +501,9 @@ bool lexin_consume_context
     while(l->ctx_end > l->cursor)
     {
         // TODO (FEATURE): Add more checking
-        // TODO (FEATURE): Support for '
         cc = *l->cursor;
         if(cc == '\n') {l->line++;}
+        if(lexin_check_unified_string(l,&ctx)) {continue;}
         if(lexin_check_string(l,&ctx)) {continue;}
         int32_t lcc = lexin_check_command(l,&ctx);
         if(lcc == 1) {continue;}
