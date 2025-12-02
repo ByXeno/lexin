@@ -62,19 +62,22 @@ typedef enum {
     token_unknown = 0,
     token_str,
     token_lit,
+    token_lit_double,
     token_id,
     token_key,
     token_op,
 } token_type_t;
 
-// TODO (FEATURE): convert val to an union which holds
-// lit op id key
-// This is fine for right now but we can
-// need in the near future
-
 typedef struct {
     token_type_t type;
-    int64_t val;
+    union {
+        uint64_t as_id;
+        int64_t as_int;
+        double as_double;
+        uint64_t as_key_index;
+        uint64_t as_str_index;
+        uint64_t as_op_index;
+    } val;
 } token_t;
 
 typedef struct {
@@ -192,23 +195,23 @@ void print_token
     if(t.type == token_op)
     {
         printf("token[%d]:%s %c\n",i,get_token_type_str(t),
-        l->ops[t.val]);
+        l->ops[t.val.as_op_index]);
     }else if(t.type == token_str)
     {
         printf("token[%d]:%s %s\n",i,get_token_type_str(t),
-        l->strs.data[t.val]);
+        l->strs.data[t.val.as_str_index]);
     }else if(t.type == token_key)
     {
         printf("token[%d]:%s %s\n",i,get_token_type_str(t),
-        l->keys[t.val]);
+        l->keys[t.val.as_key_index]);
     }else if(t.type == token_id)
     {
-        printf("token[%d]:%s %08lx\n",i,get_token_type_str(t),t.val);
+        printf("token[%d]:%s %08lx\n",i,get_token_type_str(t),t.val.as_id);
     }else if(t.type == token_lit)
     {
-        printf("token[%d]:%s %ld\n",i,get_token_type_str(t),t.val);
+        printf("token[%d]:%s %ld\n",i,get_token_type_str(t),t.val.as_int);
     }else
-    {printf("token[%d]:Unknown: %s %ld\n",i,get_token_type_str(t),t.val);}
+    {printf("token[%d]:Unknown: %s %ld\n",i,get_token_type_str(t),t.val.as_int);}
 
 }
 
@@ -257,7 +260,7 @@ bool lexin_convert_to_token
 (lexin_t* l)
 {
     if(l->cursor == l->last_cursor) return true;
-    token_t tok = (token_t){.type = token_unknown,.val = 0};
+    token_t tok = (token_t){.type = token_unknown,.val = {0}};
     // TODO (MID): We can use sized strings here
     char arr[l->cursor - l->last_cursor + 1];
     memcpy(arr,l->last_cursor,l->cursor - l->last_cursor);
@@ -266,8 +269,9 @@ bool lexin_convert_to_token
     if(isdigit(lc)) {
         char* end = 0;
         // TODO (FEATURE): Add new approach for this because this thing doesnt cover all the cases
-        tok.val = strtoul(arr,&end,10);
-        if (tok.val == (uint32_t)ULONG_MAX && errno == ERANGE) {
+        int64_t val = 0;
+        val = strtoul(arr,&end,10);
+        if (val == (uint32_t)ULONG_MAX && errno == ERANGE) {
             lexer_printf(l,"Integer overflow \"%.*s\"\n",
             (uint32_t)(l->cursor - l->last_cursor),l->last_cursor);
             l->last_cursor = l->cursor+1;
@@ -275,11 +279,11 @@ bool lexin_convert_to_token
         }
         if(*end != '\0') {
             if(*end == 'x' || *end == 'X') {
-                tok.val = strtoul(end,0,16);
+                val = strtoul(end,0,16);
             } else if(*end == 'b' || *end == 'B') {
-                tok.val = strtoul(end,0,2);
+                val = strtoul(end,0,2);
             } else if(*end == 'o' || *end == 'O') {
-                tok.val = strtoul(end,0,8);
+                val = strtoul(end,0,8);
             } else {
                 lexer_printf(l,"Unknown suffix %s\n",end);
                 l->last_cursor = l->cursor+1;
@@ -289,30 +293,31 @@ bool lexin_convert_to_token
         if(l->tokens.count > 1) {
             if(
             l->tokens.data[l->tokens.count-1].type == token_op &&
-            l->ops[l->tokens.data[l->tokens.count-1].val] == '-' &&
+            l->ops[l->tokens.data[l->tokens.count-1].val.as_op_index] == '-' &&
             l->tokens.data[l->tokens.count-2].type == token_op)
             {
                 l->tokens.count--;
-                tok.val *= -1;
+                val *= -1;
             }
         }
+        tok.val.as_int = val;
         tok.type = token_lit;
         goto end;
     }
     if(lexin_is_op(l,lc)) {
-        tok.val = lexin_get_index_op(l,lc);
+        tok.val.as_op_index = lexin_get_index_op(l,lc);
         tok.type = token_op;
         goto end;
     }
-    // TODO (LITTLE): Check right here for better performance
-    if(isalpha(lc) || lc == '_') {
+    if ((lc >= 'A' && lc <= 'Z') || (lc >= 'a' && lc <= 'z') || lc == '_') {
         if(lexin_is_keyword(l,l->last_cursor,l->cursor - l->last_cursor)) {
             tok.type = token_key;
-            tok.val = lexin_get_index_keyword(l,l->last_cursor,l->cursor - l->last_cursor);
+            tok.val.as_key_index =
+            lexin_get_index_keyword(l,l->last_cursor,l->cursor - l->last_cursor);
             goto end;
         } else {
             tok.type = token_id;
-            tok.val = lexin_string_hash(l->last_cursor,l->cursor - l->last_cursor);
+            tok.val.as_id = lexin_string_hash(l->last_cursor,l->cursor - l->last_cursor);
             goto end;
         }
     }
@@ -361,7 +366,7 @@ bool lexin_check_string
     if((*str_mode) && cc == '"' && check_slashes(l,l->cursor) &&
     ((cpc != '\'' && cppc != '\'') ^
     ((cpc != '\'') ^ (cppc != '\'')))) {
-        token_t tok = {.type = token_str,.val = l->strs.count};
+        token_t tok = {.type = token_str,.val.as_str_index = l->strs.count};
         char* str = strndup(l->last_cursor,l->cursor - l->last_cursor);
         lexin_da_append(&l->strs,str);
         lexin_da_append(&l->tokens,tok);
@@ -465,7 +470,7 @@ bool lexin_consume_context
                 {l->res = false;}
             }
             token_t tok = {.type = token_op,
-            .val = lexin_get_index_op(l,cc)};
+            .val.as_op_index = lexin_get_index_op(l,cc)};
             lexin_da_append(&l->tokens,tok);
             l->cursor++;
             l->last_cursor = l->cursor;
@@ -485,3 +490,4 @@ bool lexin_consume_context
 #endif // LEXIN_FIRST_IMPLEMENTATION
 
 #endif // LEXIN_IMPLEMENTATION
+
