@@ -256,6 +256,14 @@ uint32_t lexin_get_col
 do { fprintf((l)->err_out,"%s:%d:%d:" fmt,(l)->file_name,(l)->line,lexin_get_col((l)),__VA_ARGS__);} while(0)
 #endif
 
+typedef struct {
+    uint32_t sl_len;
+    uint32_t ml_start_len;
+    uint32_t ml_end_len;
+    bool com_mode;
+    bool str_mode;
+} lexin_ctx_t;
+
 bool lexin_convert_to_token
 (lexin_t* l)
 {
@@ -357,13 +365,13 @@ bool check_slashes
 }
 
 bool lexin_check_string
-(lexin_t* l,bool* str_mode,bool com_mode)
+(lexin_t* l,lexin_ctx_t* ctx)
 {
-    if(com_mode) {return false;}
+    if(ctx->com_mode) {return false;}
     char cc = *l->cursor;
     char cpc = *(l->cursor-1);
     char cppc = *(l->cursor-2);
-    if((*str_mode) && cc == '"' && check_slashes(l,l->cursor) &&
+    if((ctx->str_mode) && cc == '"' && check_slashes(l,l->cursor) &&
     ((cpc != '\'' && cppc != '\'') ^
     ((cpc != '\'') ^ (cppc != '\'')))) {
         token_t tok = {.type = token_str,.val.as_str_index = l->strs.count};
@@ -372,17 +380,17 @@ bool lexin_check_string
         lexin_da_append(&l->tokens,tok);
         l->last_cursor = l->cursor + 1;
         l->cursor++;
-        (*str_mode) = false;
+        ctx->str_mode = false;
         return true;
     }
-    if(!(*str_mode) && cc == '"' && check_slashes(l,l->cursor) &&
+    if(!(ctx->str_mode) && cc == '"' && check_slashes(l,l->cursor) &&
     (cpc != '\'' && cppc != '\'')) {
         l->last_cursor = l->cursor + 1;
         l->cursor++;
-        (*str_mode) = true;
+        ctx->str_mode = true;
         return true;
     }
-    if((*str_mode))
+    if(ctx->str_mode)
     {
         l->cursor++;
         return true;
@@ -391,25 +399,25 @@ bool lexin_check_string
 }
 
 int32_t lexin_check_command
-(lexin_t* l,uint32_t sl_len,uint32_t ml_start_len,uint32_t ml_end_len,bool* com_mode)
+(lexin_t* l,lexin_ctx_t* ctx)
 {
-    bool is_sl_com = (strncmp(l->cursor,l->sl_com,sl_len) == 0);
-    bool is_ml_com_start = (strncmp(l->cursor,l->ml_com_start,ml_start_len) == 0);
-    bool is_ml_com_end = (strncmp(l->cursor,l->ml_com_end,ml_end_len) == 0);
+    bool is_sl_com = (strncmp(l->cursor,l->sl_com,ctx->sl_len) == 0);
+    bool is_ml_com_start = (strncmp(l->cursor,l->ml_com_start,ctx->ml_start_len) == 0);
+    bool is_ml_com_end = (strncmp(l->cursor,l->ml_com_end,ctx->ml_end_len) == 0);
     if(is_ml_com_start) {
         lexin_consume_last_one_if_possible(l);
-        *com_mode = true;
+        ctx->com_mode = true;
         l->cursor++;
         return 1;
     }
     if(is_ml_com_end) {
-        *com_mode = false;
+        ctx->com_mode = false;
         l->cursor++;
         l->last_cursor = l->cursor;
         l->cursor++;
         return 1;
     }
-    if(*com_mode) {l->cursor++;return true;}
+    if(ctx->com_mode) {l->cursor++;return true;}
     if(is_sl_com) {
         lexin_consume_last_one_if_possible(l);
         char* end = strchr(l->cursor,'\n');
@@ -435,11 +443,13 @@ bool lexin_consume_context
     l->key_hashs = hashs;
     for(uint32_t i = 0;i < l->keyc;++i)
     {hashs[i] = lexin_string_hash(l->keys[i],strlen(l->keys[i]));}
-    uint32_t sl_len = strlen(l->sl_com);
-    uint32_t ml_start_len = strlen(l->ml_com_start);
-    uint32_t ml_end_len = strlen(l->ml_com_end);
-    bool com_mode = false;
-    bool str_mode = false;
+    lexin_ctx_t ctx = {
+        .sl_len = strlen(l->sl_com),
+        .ml_start_len = strlen(l->ml_com_start),
+        .ml_end_len = strlen(l->ml_com_end),
+        .com_mode = false,
+        .str_mode = false,
+    };
     char cc = 0;
     while(l->ctx_end > l->cursor)
     {
@@ -447,8 +457,8 @@ bool lexin_consume_context
         // TODO (FEATURE): Support for '
         cc = *l->cursor;
         if(cc == '\n') {l->line++;}
-        if(lexin_check_string(l,&str_mode,com_mode)) {continue;}
-        int32_t lcc = lexin_check_command(l,sl_len,ml_start_len,ml_end_len,&com_mode);
+        if(lexin_check_string(l,&ctx)) {continue;}
+        int32_t lcc = lexin_check_command(l,&ctx);
         if(lcc == 1) {continue;}
         if(lcc == -1) {break;}
         if(cc == '\n') {
