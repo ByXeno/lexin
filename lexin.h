@@ -273,6 +273,7 @@ static inline bool lexin_convert_to_lit
     char arr[l->cursor - l->last_cursor + 1];
     memcpy(arr,l->last_cursor,l->cursor - l->last_cursor);
     arr[l->cursor - l->last_cursor] = 0;
+    // TODO (MID): We can use sized strings here
     // TODO (FEATURE): Add new approach for this because this thing doesnt cover all the cases
     char* end = 0;
     int64_t val = 0;
@@ -316,7 +317,6 @@ bool lexin_convert_to_token
 {
     if(l->cursor == l->last_cursor) return true;
     token_t tok = (token_t){.type = token_unknown,.val = {0}};
-    // TODO (MID): We can use sized strings here
     char lc = *l->last_cursor;
     if(isdigit(lc)) {
         if(lexin_convert_to_lit(l,&tok))
@@ -378,6 +378,64 @@ bool check_slashes
     }
     return (count % 2) == 0;
 }
+
+
+// This thing acts weird when thing like '\012332' or '\012f' came
+// and it return 'a0a' and sometimes new line '\n' when i used it in
+// unified_str function
+int64_t lexin_handle_escape_sequence(char *ptr,uint32_t *skip_count)
+{
+    if (*ptr != '\\') return -1;
+    char *start = ptr;
+    ptr++;
+    char esc = *ptr++;
+    int64_t unified = -2;
+    switch (esc) {
+        case 'a'  : { unified = '\a'; break; }
+        case 'b'  : { unified = '\b'; break; }
+        case 'f'  : { unified = '\f'; break; }
+        case 'n'  : { unified = '\n'; break; }
+        case 'r'  : { unified = '\r'; break; }
+        case 't'  : { unified = '\t'; break; }
+        case 'v'  : { unified = '\v'; break; }
+        case '\\' : { unified = '\\'; break; }
+        case '\'' : { unified = '\''; break; }
+        case '\"' : { unified = '\"'; break; }
+        case '?'  : { unified = '\?'; break; }
+        case 'x'  : {
+            unsigned long val = 0;
+            int found = 0;
+            while (isxdigit(*ptr)) {
+                found = 1;
+                int c = *ptr++;
+                val *= 16;
+                if      (c >= '0' && c <= '9') val += c - '0';
+                else if (c >= 'a' && c <= 'f') val += c - 'a' + 10;
+                else if (c >= 'A' && c <= 'F') val += c - 'A' + 10;
+            }
+            if (!found){unified = 'x';}
+            else{unified = (int64_t)val;}
+            break;
+        }
+        default:
+            if (esc >= '0' && esc <= '7') {
+                unsigned long val = esc - '0';
+                for (int i = 0;i < 2; i++) {
+                    if (*ptr >= '0' && *ptr <= '7') {
+                        val = val * 8 + (*ptr - '0');
+                        ptr++;
+                    } else {
+                        break;
+                    }
+                }
+                unified = (int64_t)val;
+            }
+            break;
+    }
+    *skip_count = ptr - start;
+    return unified;
+}
+
 
 bool lexin_check_string
 (lexin_t* l,lexin_ctx_t* ctx)
@@ -454,7 +512,6 @@ bool lexin_check_unified_string
     char cc = *l->cursor;
     // TODO Write Better Checker
     if(!(ctx->str_mode) && (ctx->unified_str_mode) && cc == '\'' && check_slashes(l,l->cursor)) {
-        // TODO Handle escape sequences
         bool res = true;
         if(((int)(l->cursor - l->last_cursor)) > (int)sizeof(uint64_t))
         {
@@ -463,9 +520,16 @@ bool lexin_check_unified_string
             (int)(l->cursor - l->last_cursor),l->last_cursor);
             res = false;goto len_failed;
         }
-        uint64_t val = *(l->last_cursor);
-        for(uint32_t i = 1;i < (uint32_t)(l->cursor - l->last_cursor);++i)
-        {val = (val << 8) || *(l->last_cursor + i);}
+        uint32_t i = 0,count = 0;
+        int64_t tmp = 0,val;
+        val = lexin_handle_escape_sequence(l->last_cursor,&count);
+        if (val < 0) {val = *(l->last_cursor);i++;}else {i += count;}
+        for(;i < (uint32_t)(l->cursor - l->last_cursor);++i)
+        {
+            tmp = lexin_handle_escape_sequence(l->last_cursor,&count);
+            if (tmp < 0) {tmp = *(l->last_cursor + i);}else {i += count;i--;}
+            val = (val << 8) | tmp;
+        }
         token_t tok = {.type = token_unified_str,.val.as_unified_str = val};
         lexin_da_append(&l->tokens,tok);
     len_failed:
