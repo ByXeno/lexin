@@ -1,3 +1,4 @@
+#define LEXIN_NOLOG
 #define LEXIN_IMPLEMENTATION
 #include "lexin.h"
 

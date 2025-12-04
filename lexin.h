@@ -267,53 +267,65 @@ uint32_t lexin_get_col
 do { fprintf((l)->err_out,"%s:%d:%d:" fmt,(l)->file_name,(l)->line,lexin_get_col((l)),__VA_ARGS__);} while(0)
 #endif
 
+static inline bool lexin_convert_to_lit
+(lexin_t* l,token_t* out)
+{
+    char arr[l->cursor - l->last_cursor + 1];
+    memcpy(arr,l->last_cursor,l->cursor - l->last_cursor);
+    arr[l->cursor - l->last_cursor] = 0;
+    // TODO (FEATURE): Add new approach for this because this thing doesnt cover all the cases
+    char* end = 0;
+    int64_t val = 0;
+    val = strtoul(arr,&end,10);
+    if (val == (uint32_t)ULONG_MAX && errno == ERANGE) {
+        lexin_printf(l,"Integer overflow \"%.*s\"\n",
+        (uint32_t)(l->cursor - l->last_cursor),l->last_cursor);
+        l->last_cursor = l->cursor+1;
+        return false;
+    }
+    if(*end != '\0') {
+        if(*end == 'x' || *end == 'X') {
+            val = strtoul(end,0,16);
+        } else if(*end == 'b' || *end == 'B') {
+            val = strtoul(end,0,2);
+        } else if(*end == 'o' || *end == 'O') {
+            val = strtoul(end,0,8);
+        } else {
+            lexin_printf(l,"Unknown suffix %s\n",end);
+            l->last_cursor = l->cursor+1;
+            return false;
+        }
+    }
+    if(l->tokens.count > 1) {
+        if(
+        l->tokens.data[l->tokens.count-1].type == token_op &&
+        l->ops[l->tokens.data[l->tokens.count-1].val.as_op_index] == '-' &&
+        l->tokens.data[l->tokens.count-2].type == token_op)
+        {
+            l->tokens.count--;
+            val *= -1;
+        }
+    }
+    out->val.as_int = val;
+    out->type = token_lit;
+    return true;
+}
+
 bool lexin_convert_to_token
 (lexin_t* l)
 {
     if(l->cursor == l->last_cursor) return true;
     token_t tok = (token_t){.type = token_unknown,.val = {0}};
     // TODO (MID): We can use sized strings here
-    char arr[l->cursor - l->last_cursor + 1];
-    memcpy(arr,l->last_cursor,l->cursor - l->last_cursor);
-    arr[l->cursor - l->last_cursor] = 0;
     char lc = *l->last_cursor;
     if(isdigit(lc)) {
-        char* end = 0;
-        // TODO (FEATURE): Add new approach for this because this thing doesnt cover all the cases
-        int64_t val = 0;
-        val = strtoul(arr,&end,10);
-        if (val == (uint32_t)ULONG_MAX && errno == ERANGE) {
-            lexin_printf(l,"Integer overflow \"%.*s\"\n",
-            (uint32_t)(l->cursor - l->last_cursor),l->last_cursor);
-            l->last_cursor = l->cursor+1;
+        if(lexin_convert_to_lit(l,&tok))
+        {
+            goto end;
+        }
+        else{
             return false;
         }
-        if(*end != '\0') {
-            if(*end == 'x' || *end == 'X') {
-                val = strtoul(end,0,16);
-            } else if(*end == 'b' || *end == 'B') {
-                val = strtoul(end,0,2);
-            } else if(*end == 'o' || *end == 'O') {
-                val = strtoul(end,0,8);
-            } else {
-                lexin_printf(l,"Unknown suffix %s\n",end);
-                l->last_cursor = l->cursor+1;
-                return false;
-            }
-        }
-        if(l->tokens.count > 1) {
-            if(
-            l->tokens.data[l->tokens.count-1].type == token_op &&
-            l->ops[l->tokens.data[l->tokens.count-1].val.as_op_index] == '-' &&
-            l->tokens.data[l->tokens.count-2].type == token_op)
-            {
-                l->tokens.count--;
-                val *= -1;
-            }
-        }
-        tok.val.as_int = val;
-        tok.type = token_lit;
-        goto end;
     }
     if(lexin_is_op(l,lc)) {
         tok.val.as_op_index = lexin_get_index_op(l,lc);
