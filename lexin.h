@@ -114,6 +114,7 @@ typedef struct {
 
     char* ops;
     uint32_t opc;
+    bool is_op[256];
     char** keys;
     uint32_t keyc;
     uint64_t* key_hashs;
@@ -127,7 +128,6 @@ typedef struct {
 
 bool lexin_consume_context(lexin_t* l);
 bool lexin_convert_to_token(lexin_t* l);
-bool lexin_is_op(lexin_t* l,char c);
 char* get_token_type_str(token_t t);
 bool lexin_is_keyword(lexin_t* l,char* ptr,uint32_t len);
 uint32_t lexin_get_index_keyword(lexin_t* l,char* str,uint32_t len);
@@ -238,15 +238,15 @@ void print_token
     }
 }
 
-bool lexin_is_op
-(lexin_t* l,char c)
+void lexin_set_is_op_array
+(lexin_t* l)
 {
+    memset(l->is_op,0,256);
     uint32_t i = 0;
     for(;i < l->opc;++i)
     {
-        if(c == l->ops[i]) return true;
+        l->is_op[(uint8_t)l->ops[i]] = true;
     }
-    return false;
 }
 
 uint32_t lexin_get_index_op
@@ -339,7 +339,7 @@ bool lexin_convert_to_token
             return false;
         }
     }
-    if(lexin_is_op(l,lc)) {
+    if(l->is_op[(uint8_t)lc]) {
         tok.val.as_op_index = lexin_get_index_op(l,lc);
         tok.type = token_op;
         goto end;
@@ -502,6 +502,7 @@ bool lexin_check_string
 int32_t lexin_check_command
 (lexin_t* l,lexin_ctx_t* ctx)
 {
+    // TODO that can cause a performance issue
     bool is_sl_com = (strncmp(l->cursor,l->sl_com,ctx->sl_len) == 0);
     bool is_ml_com_start = (strncmp(l->cursor,l->ml_com_start,ctx->ml_start_len) == 0);
     bool is_ml_com_end = (strncmp(l->cursor,l->ml_com_end,ctx->ml_end_len) == 0);
@@ -592,6 +593,7 @@ bool lexin_consume_context
     l->key_hashs = hashs;
     for(uint32_t i = 0;i < l->keyc;++i)
     {hashs[i] = lexin_string_hash(l->keys[i],strlen(l->keys[i]));}
+    lexin_set_is_op_array(l);
     lexin_ctx_t ctx = {
         .sl_len = strlen(l->sl_com),
         .ml_start_len = strlen(l->ml_com_start),
@@ -622,7 +624,7 @@ bool lexin_consume_context
             l->cursor++;
             continue;
         }
-        if(lexin_is_op(l,cc)) {
+        if(l->is_op[(uint8_t)cc]) {
             if(l->cursor != l->last_cursor && !isblank(*l->last_cursor))
             {
                 if(!lexin_convert_to_token(l))
