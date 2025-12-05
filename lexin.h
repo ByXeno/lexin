@@ -195,7 +195,7 @@ char* get_token_type_str
         case token_op: return "Op";
         case token_id: return "Id";
         case token_key: return "Key";
-        case token_unified_str: return "Uni Str";
+        case token_unified_str: return "UniStr";
         case token_lit_double: return "Double";
         case token_unknown:
         default: return "Unknown";
@@ -459,9 +459,23 @@ bool lexin_check_string
     if(!(ctx->unified_str_mode) && (ctx->str_mode) && cc == '"' && check_slashes(l,l->cursor) &&
     ((cpc != '\'' && cppc != '\'') ^
     ((cpc != '\'') ^ (cppc != '\'')))) {
-        // TODO Handle escape sequences
         token_t tok = {.type = token_str,.val.as_str_index = l->strs.count};
-        char* str = strndup(l->last_cursor,l->cursor - l->last_cursor);
+        uint32_t i = 0,skip,count = 0;
+        int64_t tmp = 0;
+        uint32_t len = l->cursor - l->last_cursor;
+        char buf[len + 1];
+        buf[len] = 0;
+        for(;i < len;++i){
+            tmp = lexin_handle_escape_sequence(l->last_cursor + i,&skip);
+            if(tmp < 0){
+                buf[count++] = *(l->last_cursor + i);
+            }else {
+                buf[count++] = tmp;
+                i += skip - 1;
+            }
+        }
+        buf[count] = 0;
+        char* str = strdup(buf);
         lexin_da_append(&l->strs,str);
         lexin_da_append(&l->tokens,tok);
         l->last_cursor = l->cursor + 1;
