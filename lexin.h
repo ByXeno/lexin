@@ -195,6 +195,8 @@ char* get_token_type_str
         case token_op: return "Op";
         case token_id: return "Id";
         case token_key: return "Key";
+        case token_unified_str: return "Uni Str";
+        case token_lit_double: return "Double";
         case token_unknown:
         default: return "Unknown";
     }
@@ -203,27 +205,37 @@ char* get_token_type_str
 void print_token
 (lexin_t* l,token_t t,uint32_t i)
 {
-    if(t.type == token_op)
-    {
-        printf("token[%d]:%s %c\n",i,get_token_type_str(t),
-        l->ops[t.val.as_op_index]);
-    }else if(t.type == token_str)
-    {
-        printf("token[%d]:%s %s\n",i,get_token_type_str(t),
-        l->strs.data[t.val.as_str_index]);
-    }else if(t.type == token_key)
-    {
-        printf("token[%d]:%s %s\n",i,get_token_type_str(t),
-        l->keys[t.val.as_key_index]);
-    }else if(t.type == token_id)
-    {
-        printf("token[%d]:%s %08lx\n",i,get_token_type_str(t),t.val.as_id);
-    }else if(t.type == token_lit)
-    {
-        printf("token[%d]:%s %ld\n",i,get_token_type_str(t),t.val.as_int);
-    }else
-    {printf("token[%d]:Unknown: %s %ld\n",i,get_token_type_str(t),t.val.as_int);}
-
+    switch(t.type) {
+        case token_op : {
+            printf("token[%d]:%s %c\n",i,get_token_type_str(t),
+            l->ops[t.val.as_op_index]);
+        } break;
+        case token_str : {
+            printf("token[%d]:%s %s\n",i,get_token_type_str(t),
+            l->strs.data[t.val.as_str_index]);
+        } break;
+        case token_key : {
+            printf("token[%d]:%s %s\n",i,get_token_type_str(t),
+            l->keys[t.val.as_key_index]);
+        } break;
+        case token_id : {
+            printf("token[%d]:%s %08lx\n",i,get_token_type_str(t),t.val.as_id);
+        } break;
+        case token_lit : {
+            printf("token[%d]:%s %ld\n",i,get_token_type_str(t),t.val.as_int);
+        } break;
+        case token_lit_double : {
+            printf("token[%d]:%s %lf\n",i,get_token_type_str(t),t.val.as_double);
+        } break;
+        case token_unified_str : {
+            printf("token[%d]:%s %lx\n",i,get_token_type_str(t),t.val.as_unified_str);
+        } break;
+        case token_unknown:
+        default: {
+            printf("token[%d]:Unknown: %s %ld\n",i,get_token_type_str(t),t.val.as_int);
+            break;
+        }
+    }
 }
 
 bool lexin_is_op
@@ -267,7 +279,7 @@ uint32_t lexin_get_col
 do { fprintf((l)->err_out,"%s:%d:%d:" fmt,(l)->file_name,(l)->line,lexin_get_col((l)),__VA_ARGS__);} while(0)
 #endif
 
-static inline bool lexin_convert_to_lit
+bool lexin_convert_to_lit
 (lexin_t* l,token_t* out)
 {
     char arr[l->cursor - l->last_cursor + 1];
