@@ -55,7 +55,7 @@ do {memset((list)->data,0,(list)->capacity); (list)->count = 0; } while(0)
 #define lexin_da_free(list) \
 do { free((list)->data); (list)->data = NULL; (list)->count = 0; (list)->capacity = 0; } while(0)
 
-#define unreachable(...) \
+#define lexin_unreachable(...) \
 do { fprintf(stderr,__VA_ARGS__);exit(1);} while(0)
 
 typedef enum {
@@ -198,7 +198,7 @@ uint32_t lexin_get_index_keyword
     for(;i < l->keyc;++i){
         if(l->key_hashs[i] == hash) return i;
     }
-    unreachable("Got invalid string at lexin_get_index_keyword");
+    lexin_unreachable("Got invalid string at lexin_get_index_keyword");
 }
 
 char* get_token_type_str
@@ -273,7 +273,7 @@ uint32_t lexin_get_index_op
     {
         if(c == l->ops[i]) return i;
     }
-    unreachable("Got invalid char at lexin_get_index_op");
+    lexin_unreachable("Got invalid char at lexin_get_index_op");
 }
 
 uint32_t lexin_get_col
