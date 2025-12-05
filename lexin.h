@@ -142,6 +142,7 @@ void print_token(lexin_t* l,token_t t,uint32_t i);
 #ifndef LEXIN_FIRST_IMPLEMENTATION
 #define LEXIN_FIRST_IMPLEMENTATION
 
+// TODO add new look-up tables for isalpha isdigit etc
 typedef struct {
     uint32_t sl_len;
     uint32_t ml_start_len;
