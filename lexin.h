@@ -132,6 +132,7 @@ char* get_token_type_str(token_t t);
 bool lexin_is_keyword(lexin_t* l,char* ptr,uint32_t len);
 uint32_t lexin_get_index_keyword(lexin_t* l,char* str,uint32_t len);
 void print_token(lexin_t* l,token_t t,uint32_t i);
+void lexin_free(lexin_t* l);
 
 #define FNV_OFFSET 0xcbf29ce484222325ULL
 #define FNV_PRIME 0x100000001b3ULL
@@ -154,6 +155,16 @@ typedef struct {
     uint64_t ml_hash_end;
     uint64_t sl_hash;
 } lexin_ctx_t;
+
+void lexin_free
+(lexin_t* l)
+{
+    free(l->tokens.data);
+    for(uint32_t i = 0;i < l->strs.count;++i)
+    {free(l->strs.data[i]);}
+    free(l->strs.data);
+}
+
 
 uint64_t lexin_string_hash
 (char *str, uint32_t len)

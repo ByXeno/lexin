@@ -34,14 +34,10 @@ int main(void)
     uint32_t i = 0;
     #if 0
     for(i = 0;i < lex.tokens.count;++i){
-        //if(lex.tokens.data[i].type == token_str)
-        {print_token(&lex,lex.tokens.data[i],i);}
+        print_token(&lex,lex.tokens.data[i],i);
     }
     #endif
-    free(lex.tokens.data);
-    for(i = 0;i < lex.strs.count;++i)
-    {free(lex.strs.data[i]);}
-    free(lex.strs.data);
+    lexin_free(&lex);
     return res;
 }
 
