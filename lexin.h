@@ -149,6 +149,9 @@ typedef struct {
     bool com_mode;
     bool str_mode;
     bool unified_str_mode;
+    uint64_t ml_hash_start;
+    uint64_t ml_hash_end;
+    uint64_t sl_hash;
 } lexin_ctx_t;
 
 uint64_t lexin_string_hash
@@ -163,6 +166,7 @@ uint64_t lexin_string_hash
     return hash;
 }
 
+// TODO this causes some time overhead
 bool lexin_is_keyword
 (lexin_t* l,char* ptr,uint32_t len)
 {
@@ -499,13 +503,13 @@ bool lexin_check_string
     return false;
 }
 
-int32_t lexin_check_command
+int32_t lexin_check_comment
 (lexin_t* l,lexin_ctx_t* ctx)
 {
-    // TODO that can cause a performance issue
-    bool is_sl_com = (strncmp(l->cursor,l->sl_com,ctx->sl_len) == 0);
-    bool is_ml_com_start = (strncmp(l->cursor,l->ml_com_start,ctx->ml_start_len) == 0);
-    bool is_ml_com_end = (strncmp(l->cursor,l->ml_com_end,ctx->ml_end_len) == 0);
+    // TODO this removed some time but now hashing costs that time but its less
+    bool is_sl_com       = (ctx->sl_hash       == lexin_string_hash(l->cursor,ctx->sl_len));
+    bool is_ml_com_start = (ctx->ml_hash_start == lexin_string_hash(l->cursor,ctx->ml_start_len));
+    bool is_ml_com_end   = (ctx->ml_hash_end   == lexin_string_hash(l->cursor,ctx->ml_end_len));
     if(is_ml_com_start) {
         lexin_consume_last_one_if_possible(l);
         ctx->com_mode = true;
@@ -601,6 +605,9 @@ bool lexin_consume_context
         .com_mode = false,
         .str_mode = false,
     };
+    ctx.sl_hash = lexin_string_hash(l->sl_com,ctx.sl_len);
+    ctx.ml_hash_start = lexin_string_hash(l->ml_com_start,ctx.ml_start_len);
+    ctx.ml_hash_end = lexin_string_hash(l->ml_com_end,ctx.ml_end_len);
     char cc = 0;
     while(l->ctx_end > l->cursor)
     {
@@ -609,7 +616,7 @@ bool lexin_consume_context
         if(cc == '\n') {l->line++;}
         if(lexin_check_unified_string(l,&ctx)) {continue;}
         if(lexin_check_string(l,&ctx)) {continue;}
-        int32_t lcc = lexin_check_command(l,&ctx);
+        int32_t lcc = lexin_check_comment(l,&ctx);
         if(lcc == 1) {continue;}
         if(lcc == -1) {break;}
         if(cc == '\n') {
