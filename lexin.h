@@ -67,10 +67,10 @@ typedef enum {
     token_id,
     token_key,
     token_op,
-} token_type_t;
+} lexin_token_type_t;
 
 typedef struct {
-    token_type_t type;
+    lexin_token_type_t type;
     union {
         uint64_t as_id;
         uint64_t as_unified_str;
@@ -80,25 +80,19 @@ typedef struct {
         uint64_t as_str_index;
         uint64_t as_op_index;
     } val;
-} token_t;
+} lexin_token_t;
 
 typedef struct {
-    token_t* data;
+    lexin_token_t* data;
     uint32_t count;
     uint32_t capacity;
-} tokens_t;
+} lexin_tokens_t;
 
 typedef struct {
     char** data;
     uint32_t count;
     uint32_t capacity;
-} str_list_t;
-
-typedef struct {
-    int64_t* data;
-    uint32_t count;
-    uint32_t capacity;
-} ids_t;
+} lexin_str_list_t;
 
 typedef struct {
     char* ctx;
@@ -118,8 +112,8 @@ typedef struct {
     char** keys;
     uint32_t keyc;
     uint64_t* key_hashs;
-    tokens_t tokens;
-    str_list_t strs;
+    lexin_tokens_t tokens;
+    lexin_str_list_t strs;
 
     char* sl_com;
     char* ml_com_start;
@@ -128,10 +122,10 @@ typedef struct {
 
 bool lexin_consume_context(lexin_t* l);
 bool lexin_convert_to_token(lexin_t* l);
-char* get_token_type_str(token_t t);
+char* get_token_type_str(lexin_token_t t);
 bool lexin_is_keyword(lexin_t* l,char* ptr,uint32_t len);
 uint32_t lexin_get_index_keyword(lexin_t* l,char* str,uint32_t len);
-void print_token(lexin_t* l,token_t t,uint32_t i);
+void print_token(lexin_t* l,lexin_token_t t,uint32_t i);
 void lexin_free(lexin_t* l);
 
 #define FNV_OFFSET 0xcbf29ce484222325ULL
@@ -202,7 +196,7 @@ uint32_t lexin_get_index_keyword
 }
 
 char* get_token_type_str
-(token_t t)
+(lexin_token_t t)
 {
     switch(t.type){
 
@@ -219,7 +213,7 @@ char* get_token_type_str
 }
 
 void print_token
-(lexin_t* l,token_t t,uint32_t i)
+(lexin_t* l,lexin_token_t t,uint32_t i)
 {
     switch(t.type) {
         case token_op : {
@@ -296,7 +290,7 @@ do { fprintf((l)->err_out,"%s:%d:%d:" fmt,(l)->file_name,(l)->line,lexin_get_col
 #endif
 
 bool lexin_convert_to_lit
-(lexin_t* l,token_t* out)
+(lexin_t* l,lexin_token_t* out)
 {
     char arr[l->cursor - l->last_cursor + 1];
     memcpy(arr,l->last_cursor,l->cursor - l->last_cursor);
@@ -344,7 +338,7 @@ bool lexin_convert_to_token
 (lexin_t* l)
 {
     if(l->cursor == l->last_cursor) return true;
-    token_t tok = (token_t){.type = token_unknown,.val = {0}};
+    lexin_token_t tok = (lexin_token_t){.type = token_unknown,.val = {0}};
     char lc = *l->last_cursor;
     if(isdigit(lc)) {
         if(lexin_convert_to_lit(l,&tok))
@@ -475,7 +469,7 @@ bool lexin_check_string
     if(!(ctx->unified_str_mode) && (ctx->str_mode) && cc == '"' && check_slashes(l,l->cursor) &&
     ((cpc != '\'' && cppc != '\'') ^
     ((cpc != '\'') ^ (cppc != '\'')))) {
-        token_t tok = {.type = token_str,.val.as_str_index = l->strs.count};
+        lexin_token_t tok = {.type = token_str,.val.as_str_index = l->strs.count};
         uint32_t i = 0,skip,count = 0;
         int64_t tmp = 0;
         uint32_t len = l->cursor - l->last_cursor;
@@ -573,7 +567,7 @@ bool lexin_check_unified_string
             if (tmp < 0) {tmp = *(l->last_cursor + i);}else {i += count;i--;}
             val = (val << 8) | tmp;
         }
-        token_t tok = {.type = token_unified_str,.val.as_unified_str = val};
+        lexin_token_t tok = {.type = token_unified_str,.val.as_unified_str = val};
         lexin_da_append(&l->tokens,tok);
     len_failed:
         l->last_cursor = l->cursor + 1;
@@ -649,7 +643,7 @@ bool lexin_consume_context
                 if(!lexin_convert_to_token(l))
                 {l->res = false;}
             }
-            token_t tok = {.type = token_op,
+            lexin_token_t tok = {.type = token_op,
             .val.as_op_index = lexin_get_index_op(l,cc)};
             lexin_da_append(&l->tokens,tok);
             l->cursor++;
