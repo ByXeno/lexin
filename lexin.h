@@ -89,7 +89,12 @@ typedef struct {
 } lexin_tokens_t;
 
 typedef struct {
-    char** data;
+    uint32_t len;
+    char* str;
+} lexin_str_t;
+
+typedef struct {
+    lexin_str_t* data;
     uint32_t count;
     uint32_t capacity;
 } lexin_str_list_t;
@@ -155,7 +160,7 @@ void lexin_free
 {
     free(l->tokens.data);
     for(uint32_t i = 0;i < l->strs.count;++i)
-    {free(l->strs.data[i]);}
+    {free(l->strs.data[i].str);}
     free(l->strs.data);
 }
 
@@ -485,7 +490,7 @@ bool lexin_check_string
             }
         }
         buf[count] = 0;
-        char* str = strdup(buf);
+        lexin_str_t str = {.str = strndup(buf,count+1),.len = count+1};
         lexin_da_append(&l->strs,str);
         lexin_da_append(&l->tokens,tok);
         l->last_cursor = l->cursor + 1;
