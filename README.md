@@ -1,20 +1,7 @@
-# lexin
-A simple lexer library in c
+# Moved to Codeberg
 
-> [!WARNING]
-> The design of the library is not finished and may be a subject to change.
+To protect the integrity of this project and support open-source software, I have moved development to **Codeberg**.
 
-## Quick Start
+**New Home:** [https://codeberg.org/fanes/lexin](https://codeberg.org/fanes/lexin)
 
-Check [example.c](./example.c)
-
-## License
-
-This project is licensed under the **GNU General Public License v3.0 (GPLv3)**.
-
-You are free to use, modify, and distribute this software, as long as any
-derivative works are also released under the same license.
-
-Full license text is available in the [LICENSE](./LICENSE) file or at
-https://www.gnu.org/licenses/gpl-3.0.html
-
+*This repository is archived to prevent unauthorized AI training on active contributions.*
